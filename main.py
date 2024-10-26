@@ -158,14 +158,36 @@ def chatbot_response(user_input):
     response = answer_question(translated_input)
     return translate_from_english(response, user_language) if user_language != 'en' else response
 
-
 @app.route('/chat', methods=['POST'])
 def chat():
-    user_input = request.json.get('message')
-    emotion = detect_emotion(user_input)
-    emotion_response = respond_based_on_emotion(emotion)
-    response = chatbot_response(user_input)
-    return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
+    try:
+        # Retrieve user input from the request
+        user_input = request.json.get('message')
+        print(f"Received user input: {user_input}")  # Debugging statement
+
+        if not user_input:
+            print("No input provided")  # Debugging statement
+            return jsonify({"error": "No input provided"}), 400
+
+        # Detect emotion from the user input
+        emotion = detect_emotion(user_input)
+        print(f"Detected emotion: {emotion}")  # Debugging statement
+
+        # Generate an emotional response based on the detected emotion
+        emotion_response = respond_based_on_emotion(emotion)
+        print(f"Emotion response: {emotion_response}")  # Debugging statement
+
+        # Generate chatbot response
+        response = chatbot_response(user_input)
+        print(f"Chatbot response: {response}")  # Debugging statement
+
+        # Return the responses as JSON
+        return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
+
+    except Exception as e:
+        print(f"Error in chat endpoint: {e}")  # Log the error
+        return jsonify({"error": "An internal error occurred."}), 500
+
 @app.route('/')
 def home():
     return jsonify({"message": "Hello, i am intelixo an ai assistant made by rexeloft inc. how can i help you?"}), 200  
