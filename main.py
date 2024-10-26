@@ -5,7 +5,6 @@ import json
 import re
 import os
 import requests
-import time
 from googletrans import Translator
 from fuzzywuzzy import fuzz
 from nltk.stem import WordNetLemmatizer
@@ -13,7 +12,6 @@ from nltk.stem import PorterStemmer
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from functools import lru_cache
 from difflib import SequenceMatcher
-import random
 from flask import Flask, request, jsonify
 from PIL import Image
 import pytesseract
@@ -24,8 +22,9 @@ dataset_file = 'dataset.json'
 synonyms_file = 'synonyms.json'
 api_url = "https://tilki.dev/api/hercai"
 
+# Load or create the dataset
 if not os.path.exists(dataset_file):
-    dataset = {    
+    dataset = {
 "Who owns you?": "I am owned by Rexeloft Inc.",
     "Who created you?": "I was created in October 2024 by Rexeloft Inc.",
     "Who is your owner?": "I am owned by rexeloft Inc.",
@@ -71,13 +70,15 @@ if not os.path.exists(dataset_file):
     "Do you have a favorite subject?": "I don’t have favorites, but I’m good at assisting with a wide range of subjects.",
     "Define photosynthesis": "Photosynthesis is the process by which plants convert sunlight, water, and carbon dioxide into glucose (food) and oxygen.",
     "What does Rexeloft Inc. do?": "Rexeloft Inc. is a company that excels in AI, gaming, and software development, providing innovative solutions for developers and gamers alike.",
-    "Does Rexeloft Inc. only make AIs?": "No, Rexeloft Inc. is involved in gaming and software development as well."}
+    "Does Rexeloft Inc. only make AIs?": "No, Rexeloft Inc. is involved in gaming and software development as well."
+    }
     with open(dataset_file, 'w') as file:
-        json.dump(dataset, file)
+        json.dump(dataset, file, indent=4)
 else:
     with open(dataset_file, 'r') as file:
         dataset = json.load(file)
 
+# Load or create the synonyms file
 if not os.path.exists(synonyms_file):
     synonyms = {"wtf": "what the fuck", "idk": "I don't know"}
     with open(synonyms_file, 'w') as file:
@@ -166,14 +167,12 @@ def query_external_api(question):
     try:
         params = {'soru': question}
         response = requests.get(api_url, params=params)
-        if response.status_code == 200:
-            result = response.json()
-            return result.get('cevap')
-        else:
-            return None
-    except Exception as e:
+        response.raise_for_status()  # Raise an error for bad responses
+        result = response.json()
+        return result.get('cevap')
+    except requests.exceptions.RequestException as e:
         print(f"Error querying API: {e}")
-        return None
+        return "Sorry, I couldn't reach the external service."
 
 def should_store_question(question):
     keywords = ["what", "which", "who", "when", "how", "explain", "define"]
@@ -207,13 +206,19 @@ def extract_text_from_image(image):
         text = pytesseract.image_to_string(Image.open(image))
         return text.strip()
     except Exception as e:
+        print(f"Error extracting text from image: {e}")
         return None
+
+@app.route('/')
+def home():
+    return "Welcome to the AI Assistant! Use the /chat endpoint to interact."
 
 @app.route('/chat', methods=['POST'])
 def chat():
     user_id = request.json.get('user_id')
     pass_key = request.json.get('pass_key')
     message = request.json.get('message')
+
     if request.files:  # Check if an image is uploaded
         image = request.files['image']
         text_from_image = extract_text_from_image(image)
@@ -223,8 +228,11 @@ def chat():
         else:
             return jsonify({"error": "Unable to extract text from image."}), 400
 
-    response = chatbot_response(message)
-    return jsonify({"response": response}), 200
+    if message:  # Check if the message is provided
+        response = chatbot_response(message)
+        return jsonify({"response": response}), 200
+    else:
+        return jsonify({"error": "No message provided."}), 400
 
 if __name__ == '__main__':
     import os
