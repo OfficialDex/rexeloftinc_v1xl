@@ -158,12 +158,15 @@ def chatbot_response(user_input):
     response = answer_question(translated_input)
     return translate_from_english(response, user_language) if user_language != 'en' else response
 
-@app.route('/chat', methods=['POST'])
+@app.route('/chat', methods=['GET', 'POST'])
 def chat():
     try:
-        # Retrieve user input from the request
-        user_input = request.json.get('message')
-        print(f"Received user input: {user_input}")  # Debugging statement
+        if request.method == 'GET':
+            user_input = request.args.get('message')
+            print(f"Received user input via GET: {user_input}")  # Debugging statement
+        else:  # POST
+            user_input = request.json.get('message')
+            print(f"Received user input via POST: {user_input}")  # Debugging statement
 
         if not user_input:
             print("No input provided")  # Debugging statement
