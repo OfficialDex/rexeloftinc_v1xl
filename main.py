@@ -161,12 +161,13 @@ def chatbot_response(user_input):
 @app.route('/chat', methods=['GET', 'POST'])
 def chat():
     try:
+        # For GET request, retrieve user input from query parameters
         if request.method == 'GET':
             user_input = request.args.get('message')
-            print(f"Received user input via GET: {user_input}")  # Debugging statement
-        else:  # POST
+        else:  # POST request
             user_input = request.json.get('message')
-            print(f"Received user input via POST: {user_input}")  # Debugging statement
+
+        print(f"Received user input: {user_input}")  # Debugging statement
 
         if not user_input:
             print("No input provided")  # Debugging statement
