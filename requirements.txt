@@ -1,0 +1,8 @@
+Flask
+nltk
+pytesseract
+Pillow
+requests
+googletrans
+fuzzywuzzy
+vaderSentiment
