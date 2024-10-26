@@ -1,38 +1,35 @@
 from flask import Flask, request, jsonify
-import nltk
 import json
-import re
 import os
 import requests
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import re
+import random
 from googletrans import Translator
 from fuzzywuzzy import fuzz
-from nltk.stem import WordNetLemmatizer
+from nltk.stem import WordNetLemmatizer, PorterStemmer
 from nltk.corpus import wordnet
-from nltk.stem import PorterStemmer
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from functools import lru_cache
 from difflib import SequenceMatcher
-import random
-
-nltk.download('wordnet')
-nltk.download('averaged_perceptron_tagger')
+from functools import lru_cache
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
 
-dataset_file = 'dataset.json'
-synonyms_file = 'synonyms.json'
-api_url = "https://tilki.dev/api/hercai?soru="
 stemmer = PorterStemmer()
-users = {}
+analyzer = SentimentIntensityAnalyzer()
+translator = Translator()
 
 emotion_responses = {
     'happy': ["I'm glad to hear that!", "That's awesome!", "Yay!", "very nice!"],
     'sad': ["I'm sorry to hear that.", "I hope things get better soon.", "Stay strong!", "never give up!"],
-    'angry': ["Take a deep breath.", "I apologise if i did something worng.", "sorry if i did anything worng"],
+    'angry': ["Take a deep breath.", "I apologise if I did something wrong.", "sorry if i did anything worng"],
     'neutral': ["Got it.", "Understood.", "Okay!", "Alright!", "Bet"]
 }
+
+dataset_file = 'dataset.json'
+synonyms_file = 'synonyms.json'
+api_url = "https://tilki.dev/api/hercai?soru="
 
 if not os.path.exists(dataset_file):
     dataset = {
@@ -53,36 +50,31 @@ else:
     with open(synonyms_file, 'r') as file:
         synonyms = json.load(file)
 
-def detect_language(text):
-    translator = Translator()
-    detection = translator.detect(text)
-    return detection.lang
-
-def translate_to_english(text):
-    translator = Translator()
-    translation = translator.translate(text, dest='en')
-    return translation.text
-
-def translate_from_english(text, lang):
-    translator = Translator()
-    translation = translator.translate(text, dest=lang)
-    return translation.text
 
 @lru_cache(maxsize=1000)
 def lemmatize_word(word):
     lemmatizer = WordNetLemmatizer()
     return lemmatizer.lemmatize(word)
 
+def detect_language(text):
+    detection = translator.detect(text)
+    return detection.lang
+
+def translate_to_english(text):
+    translation = translator.translate(text, dest='en')
+    return translation.text
+
+def translate_from_english(text, lang):
+    translation = translator.translate(text, dest=lang)
+    return translation.text
+
 def replace_synonyms(text):
     words = text.split()
-    replaced_words = [synonyms.get(word.lower(), word) for word in words]
-    return ' '.join(replaced_words)
+    return ' '.join(synonyms.get(word.lower(), word) for word in words)
 
 def normalize_and_lemmatize(text):
-    text = text.lower()
-    words = re.findall(r'\w+', text)
-    lemmatized_words = [lemmatize_word(word) for word in words]
-    return ' '.join(lemmatized_words)
+    words = re.findall(r'\w+', text.lower())
+    return ' '.join(lemmatize_word(word) for word in words)
 
 def get_wordnet_synonyms(word):
     synonyms = set()
@@ -107,44 +99,28 @@ def get_most_similar_question(question):
     if not questions:
         return None
 
-    question_words = question.lower().split()
-    expanded_question = stem_and_expand_words(question_words)
-
-    highest_ratio = 0
-    most_similar_question = None
+    expanded_question = stem_and_expand_words(question.lower().split())
+    highest_ratio, most_similar_question = 0, None
 
     for q in questions:
-        q_words = q.lower().split()
-        expanded_q = stem_and_expand_words(q_words)
-
-        common_words = expanded_question.intersection(expanded_q)
-        similarity_ratio = len(common_words) / len(expanded_question.union(expanded_q))
-
-        fuzzy_ratio = fuzz.token_set_ratio(question, q) / 100
-
-        word_similarity = sum(get_word_similarity(w1, w2) for w1 in expanded_question for w2 in expanded_q) / (len(expanded_question) * len(expanded_q))
-
-        combined_score = (similarity_ratio + fuzzy_ratio + word_similarity) / 3
+        expanded_q = stem_and_expand_words(q.lower().split())
+        similarity_ratio = len(expanded_question.intersection(expanded_q)) / len(expanded_question.union(expanded_q))
+        combined_score = (similarity_ratio + fuzz.token_set_ratio(question, q) / 100 + 
+                          sum(get_word_similarity(w1, w2) for w1 in expanded_question for w2 in expanded_q) /
+                          (len(expanded_question) * len(expanded_q)) ) / 3
 
         if combined_score > highest_ratio:
-            highest_ratio = combined_score
-            most_similar_question = q
+            highest_ratio, most_similar_question = combined_score, q
 
-    if highest_ratio > 0.5:
-        return most_similar_question
-    return None
+    return most_similar_question if highest_ratio > 0.5 else None
 
 def detect_emotion(text):
-    analyzer = SentimentIntensityAnalyzer()
-    sentiment_scores = analyzer.polarity_scores(text)
-    if sentiment_scores['compound'] >= 0.5:
+    sentiment = analyzer.polarity_scores(text)
+    if sentiment['compound'] >= 0.5:
         return 'happy'
-    elif sentiment_scores['compound'] <= -0.5:
+    elif sentiment['compound'] <= -0.5:
         return 'angry'
-    elif sentiment_scores['compound'] == 0:
-        return 'neutral'
-    else:
-        return 'sad'
+    return 'neutral' if sentiment['compound'] == 0 else 'sad'
 
 def respond_based_on_emotion(emotion):
     return random.choice(emotion_responses[emotion])
@@ -152,12 +128,9 @@ def respond_based_on_emotion(emotion):
 def query_external_api(question):
     try:
         response = requests.get(api_url + question)
-        if response.status_code == 200:
-            result = response.json()
-            return result.get('cevap')
-        else:
-            return None
+        return response.json().get('cevap') if response.status_code == 200 else None
     except Exception as e:
+        print(f"Error querying API: {e}")
         return None
 
 def generate_unique_response(answer):
@@ -166,47 +139,32 @@ def generate_unique_response(answer):
 def answer_question(question):
     normalized_question = normalize_and_lemmatize(replace_synonyms(question))
     similar_question = get_most_similar_question(normalized_question)
-
     if similar_question:
-        answer = dataset[similar_question]
-        return generate_unique_response(answer)
-    else:
-        api_response = query_external_api(question)
+        return generate_unique_response(dataset[similar_question])
 
-        if api_response:
-            dataset[normalized_question] = api_response
-            with open(dataset_file, 'w') as file:
-                json.dump(dataset, file, indent=4)
+    api_response = query_external_api(question)
+    if api_response:
+        dataset[normalized_question] = api_response
+        with open(dataset_file, 'w') as file:
+            json.dump(dataset, file, indent=4)
+        return generate_unique_response(api_response)
+    return "I'm sorry, I don't have an answer for that."
 
-            return generate_unique_response(api_response)
-        else:
-            return "I'm sorry, I don't have an answer for that."
+def chatbot_response(user_input):
+    user_language = detect_language(user_input)
+    translated_input = translate_to_english(user_input) if user_language != 'en' else user_input
+    response = answer_question(translated_input)
+    return translate_from_english(response, user_language) if user_language != 'en' else response
 
-@app.route('/')
-def home():
-    return "Welcome to the AI Assistant! Use the /chat endpoint to interact."
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    user_id = request.json.get('user_id')
-    pass_key = request.json.get('pass_key')
     user_input = request.json.get('message')
-    
-    if user_id not in users:
-        users[user_id] = pass_key
+    emotion = detect_emotion(user_input)
+    emotion_response = respond_based_on_emotion(emotion)
+    response = chatbot_response(user_input)
+    return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
 
-    user_language = detect_language(user_input)
-    if user_language != 'en':
-        translated_input = translate_to_english(user_input)
-    else:
-        translated_input = user_input
 
-    response = answer_question(translated_input)
-
-    if user_language != 'en':
-        response = translate_from_english(response, user_language)
-
-    return jsonify({"response": response})
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
