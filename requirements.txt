@@ -6,3 +6,4 @@ requests
 googletrans
 fuzzywuzzy
 vaderSentiment
+scikit-learn
