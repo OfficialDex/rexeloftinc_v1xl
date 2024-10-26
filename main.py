@@ -3,35 +3,36 @@ import json
 import re
 import os
 import requests
-import time
+import logging
 from googletrans import Translator
 from fuzzywuzzy import fuzz
-from nltk.stem import WordNetLemmatizer
-from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer, PorterStemmer
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from functools import lru_cache
 from difflib import SequenceMatcher
-import logging
 from flask import Flask, request, jsonify
 from PIL import Image
 import pytesseract
 
-# Setup logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Initialize files and constants
+# Enable debugging log
+logging.basicConfig(level=logging.DEBUG)
+
+# Files and external API URL
 dataset_file = 'dataset.json'
 synonyms_file = 'synonyms.json'
 api_url = "https://tilki.dev/api/hercai"
 
-# Initialize dataset
+# Load or create dataset file
 if not os.path.exists(dataset_file):
     dataset = {
-        "Who owns you?": "I am owned by Rexeloft Inc.",
-        "Who created you?": "I was created in October 2024 by Rexeloft Inc.",
-        # Add more initial questions and responses as needed...
+        "Who owns you?": "I am owned by Rexeloft Inc."
+        # Add other predefined responses here...
     }
     with open(dataset_file, 'w') as file:
         json.dump(dataset, file)
@@ -39,7 +40,7 @@ else:
     with open(dataset_file, 'r') as file:
         dataset = json.load(file)
 
-# Initialize synonyms
+# Load or create synonyms file
 if not os.path.exists(synonyms_file):
     synonyms = {"wtf": "what the heck", "idk": "I don't know"}
     with open(synonyms_file, 'w') as file:
@@ -48,34 +49,23 @@ else:
     with open(synonyms_file, 'r') as file:
         synonyms = json.load(file)
 
-# Utility functions
+# Language detection and translation functions
 def detect_language(text):
-    try:
-        translator = Translator()
-        detection = translator.detect(text)
-        return detection.lang
-    except Exception as e:
-        logging.error(f"Language detection error: {e}")
-        return None
+    translator = Translator()
+    detection = translator.detect(text)
+    return detection.lang
 
 def translate_to_english(text):
-    try:
-        translator = Translator()
-        translation = translator.translate(text, dest='en')
-        return translation.text
-    except Exception as e:
-        logging.error(f"Translation to English error: {e}")
-        return text
+    translator = Translator()
+    translation = translator.translate(text, dest='en')
+    return translation.text
 
 def translate_from_english(text, lang):
-    try:
-        translator = Translator()
-        translation = translator.translate(text, dest=lang)
-        return translation.text
-    except Exception as e:
-        logging.error(f"Translation from English error: {e}")
-        return text
+    translator = Translator()
+    translation = translator.translate(text, dest=lang)
+    return translation.text
 
+# Text normalization and lemmatization
 @lru_cache(maxsize=1000)
 def lemmatize_word(word):
     lemmatizer = WordNetLemmatizer()
@@ -92,9 +82,11 @@ def normalize_and_lemmatize(text):
     lemmatized_words = [lemmatize_word(word) for word in words]
     return ' '.join(lemmatized_words)
 
+# Function to get word similarity
 def get_word_similarity(word1, word2):
     return SequenceMatcher(None, word1, word2).ratio()
 
+# Function to find the most similar question in the dataset
 def get_most_similar_question(question):
     questions = list(dataset.keys())
     if not questions:
@@ -122,10 +114,10 @@ def get_most_similar_question(question):
             most_similar_question = q
 
     if highest_ratio > 0.5:
-        logging.debug(f"Found similar question: {most_similar_question} with score {highest_ratio}")
         return most_similar_question
     return None
 
+# Emotion detection using VADER
 def detect_emotion(text):
     analyzer = SentimentIntensityAnalyzer()
     sentiment_scores = analyzer.polarity_scores(text)
@@ -138,52 +130,53 @@ def detect_emotion(text):
     else:
         return 'sad'
 
+# Query external API with error handling
 def query_external_api(question):
     try:
         params = {'soru': question}
         response = requests.get(api_url, params=params)
         if response.status_code == 200:
             result = response.json()
-            logging.info(f"External API response: {result}")
             return result.get('cevap')
         else:
-            logging.warning(f"Failed to get a valid response from the external API. Status code: {response.status_code}")
+            logging.error(f"External API returned status code {response.status_code}")
             return None
     except Exception as e:
-        logging.error(f"Error querying external API: {e}")
+        logging.error(f"Error querying API: {e}")
         return None
 
+# Check if a question should be stored in the dataset
 def should_store_question(question):
     keywords = ["what", "which", "who", "when", "how", "explain", "define"]
     return any(keyword in question.lower() for keyword in keywords)
 
+# Answer function that retrieves or queries responses
 def answer_question(question):
     normalized_question = normalize_and_lemmatize(replace_synonyms(question))
     similar_question = get_most_similar_question(normalized_question)
 
     if similar_question:
-        logging.info(f"Answer found in dataset for question: '{question}'")
         return dataset[similar_question]
     else:
-        logging.info(f"No answer found in dataset for question: '{question}'")
         return None
 
+# Main response handler for the chatbot
 def chatbot_response(user_input):
     dataset_answer = answer_question(user_input)
 
     if dataset_answer:
         return dataset_answer
 
-    logging.info(f"Querying external API for question: '{user_input}'")
+    logging.debug(f"No direct answer in dataset. Querying external API for: {user_input}")
     api_response = query_external_api(user_input)
     if api_response and should_store_question(user_input):
-        logging.info(f"Storing new question in dataset: '{user_input}'")
         dataset[normalize_and_lemmatize(user_input)] = api_response
         with open(dataset_file, 'w') as file:
             json.dump(dataset, file, indent=4)
 
     return api_response if api_response else "I'm sorry, I don't have an answer for that."
 
+# OCR for image text extraction
 def extract_text_from_image(image):
     try:
         text = pytesseract.image_to_string(Image.open(image))
@@ -192,12 +185,19 @@ def extract_text_from_image(image):
         logging.error(f"Error extracting text from image: {e}")
         return None
 
+# Root route for server status
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({"message": "Server is running"}), 200
+
+# Main chat endpoint
 @app.route('/chat', methods=['POST'])
 def chat():
     user_id = request.json.get('user_id')
     pass_key = request.json.get('pass_key')
     message = request.json.get('message')
-    if request.files:
+
+    if request.files:  # Check if an image is uploaded
         image = request.files['image']
         text_from_image = extract_text_from_image(image)
         if text_from_image:
@@ -209,6 +209,7 @@ def chat():
     response = chatbot_response(message)
     return jsonify({"response": response}), 200
 
+# Run the app
 if __name__ == '__main__':
     import os
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
