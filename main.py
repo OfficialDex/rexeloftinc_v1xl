@@ -1,11 +1,9 @@
 import nltk
-nltk.download('wordnet')
-nltk.download('averaged_perceptron_tagger')
-
 import json
 import re
 import os
 import requests
+import time
 from googletrans import Translator
 from fuzzywuzzy import fuzz
 from nltk.stem import WordNetLemmatizer
@@ -13,21 +11,27 @@ from nltk.stem import PorterStemmer
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from functools import lru_cache
 from difflib import SequenceMatcher
-from flask import Flask, request, jsonify, send_from_directory
+import logging
+from flask import Flask, request, jsonify
 from PIL import Image
 import pytesseract
 
+# Setup logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 app = Flask(__name__)
 
+# Initialize files and constants
 dataset_file = 'dataset.json'
 synonyms_file = 'synonyms.json'
 api_url = "https://tilki.dev/api/hercai"
 
+# Initialize dataset
 if not os.path.exists(dataset_file):
     dataset = {
         "Who owns you?": "I am owned by Rexeloft Inc.",
-        "Who created you?": "I was created in October 2024 by Rexeloft Inc."
-        # ... other entries
+        "Who created you?": "I was created in October 2024 by Rexeloft Inc.",
+        # Add more initial questions and responses as needed...
     }
     with open(dataset_file, 'w') as file:
         json.dump(dataset, file)
@@ -35,28 +39,42 @@ else:
     with open(dataset_file, 'r') as file:
         dataset = json.load(file)
 
+# Initialize synonyms
 if not os.path.exists(synonyms_file):
-    synonyms = {"wtf": "what the fuck", "idk": "I don't know"}
+    synonyms = {"wtf": "what the heck", "idk": "I don't know"}
     with open(synonyms_file, 'w') as file:
         json.dump(synonyms, file)
 else:
     with open(synonyms_file, 'r') as file:
         synonyms = json.load(file)
 
+# Utility functions
 def detect_language(text):
-    translator = Translator()
-    detection = translator.detect(text)
-    return detection.lang
+    try:
+        translator = Translator()
+        detection = translator.detect(text)
+        return detection.lang
+    except Exception as e:
+        logging.error(f"Language detection error: {e}")
+        return None
 
 def translate_to_english(text):
-    translator = Translator()
-    translation = translator.translate(text, dest='en')
-    return translation.text
+    try:
+        translator = Translator()
+        translation = translator.translate(text, dest='en')
+        return translation.text
+    except Exception as e:
+        logging.error(f"Translation to English error: {e}")
+        return text
 
 def translate_from_english(text, lang):
-    translator = Translator()
-    translation = translator.translate(text, dest=lang)
-    return translation.text
+    try:
+        translator = Translator()
+        translation = translator.translate(text, dest=lang)
+        return translation.text
+    except Exception as e:
+        logging.error(f"Translation from English error: {e}")
+        return text
 
 @lru_cache(maxsize=1000)
 def lemmatize_word(word):
@@ -104,6 +122,7 @@ def get_most_similar_question(question):
             most_similar_question = q
 
     if highest_ratio > 0.5:
+        logging.debug(f"Found similar question: {most_similar_question} with score {highest_ratio}")
         return most_similar_question
     return None
 
@@ -125,11 +144,13 @@ def query_external_api(question):
         response = requests.get(api_url, params=params)
         if response.status_code == 200:
             result = response.json()
+            logging.info(f"External API response: {result}")
             return result.get('cevap')
         else:
+            logging.warning(f"Failed to get a valid response from the external API. Status code: {response.status_code}")
             return None
     except Exception as e:
-        print(f"Error querying API: {e}")
+        logging.error(f"Error querying external API: {e}")
         return None
 
 def should_store_question(question):
@@ -141,8 +162,10 @@ def answer_question(question):
     similar_question = get_most_similar_question(normalized_question)
 
     if similar_question:
+        logging.info(f"Answer found in dataset for question: '{question}'")
         return dataset[similar_question]
     else:
+        logging.info(f"No answer found in dataset for question: '{question}'")
         return None
 
 def chatbot_response(user_input):
@@ -151,8 +174,10 @@ def chatbot_response(user_input):
     if dataset_answer:
         return dataset_answer
 
+    logging.info(f"Querying external API for question: '{user_input}'")
     api_response = query_external_api(user_input)
     if api_response and should_store_question(user_input):
+        logging.info(f"Storing new question in dataset: '{user_input}'")
         dataset[normalize_and_lemmatize(user_input)] = api_response
         with open(dataset_file, 'w') as file:
             json.dump(dataset, file, indent=4)
@@ -164,23 +189,15 @@ def extract_text_from_image(image):
         text = pytesseract.image_to_string(Image.open(image))
         return text.strip()
     except Exception as e:
+        logging.error(f"Error extracting text from image: {e}")
         return None
-
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"message": "Welcome to the AI Assistant API. Use /chat to interact with me."})
-
-@app.route('/favicon.ico')
-def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico')
 
 @app.route('/chat', methods=['POST'])
 def chat():
     user_id = request.json.get('user_id')
     pass_key = request.json.get('pass_key')
     message = request.json.get('message')
-    
-    if request.files:  # Check if an image is uploaded
+    if request.files:
         image = request.files['image']
         text_from_image = extract_text_from_image(image)
         if text_from_image:
@@ -193,4 +210,5 @@ def chat():
     return jsonify({"response": response}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
