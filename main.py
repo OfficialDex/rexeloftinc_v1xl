@@ -13,6 +13,8 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from flask import send_from_directory
+
 
 app = Flask(__name__)
 
@@ -166,7 +168,11 @@ def chat():
     return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
 @app.route('/')
 def home():
-    return jsonify({"message": "Hello, i am intelixo an ai assistant made by rexeloft inc. how can i help you?"}), 200    
+    return jsonify({"message": "Hello, i am intelixo an ai assistant made by rexeloft inc. how can i help you?"}), 200  
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
 if __name__ == '__main__':
