@@ -161,35 +161,11 @@ def chatbot_response(user_input):
 @app.route('/chat', methods=['GET', 'POST'])
 def chat():
     try:
-        # For GET request, retrieve user input from query parameters
-        if request.method == 'GET':
-            user_input = request.args.get('message')
-        else:  # POST request
-            user_input = request.json.get('message')
-
+        user_input = request.args.get('message') if request.method == 'GET' else request.json.get('message')
         print(f"Received user input: {user_input}")  # Debugging statement
-
-        if not user_input:
-            print("No input provided")  # Debugging statement
-            return jsonify({"error": "No input provided"}), 400
-
-        # Detect emotion from the user input
-        emotion = detect_emotion(user_input)
-        print(f"Detected emotion: {emotion}")  # Debugging statement
-
-        # Generate an emotional response based on the detected emotion
-        emotion_response = respond_based_on_emotion(emotion)
-        print(f"Emotion response: {emotion_response}")  # Debugging statement
-
-        # Generate chatbot response
-        response = chatbot_response(user_input)
-        print(f"Chatbot response: {response}")  # Debugging statement
-
-        # Return the responses as JSON
-        return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
-
+        return jsonify({"message": "API is working", "user_input": user_input})
     except Exception as e:
-        print(f"Error in chat endpoint: {e}")  # Log the error
+        print(f"Error in chat endpoint: {e}")
         return jsonify({"error": "An internal error occurred."}), 500
 
 @app.route('/')
