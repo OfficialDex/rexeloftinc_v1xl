@@ -164,6 +164,9 @@ def chat():
     emotion_response = respond_based_on_emotion(emotion)
     response = chatbot_response(user_input)
     return jsonify({"emotion_response": emotion_response, "chatbot_response": response})
+@app.route('/')
+def home():
+    return jsonify({"message": "Hello, i am intelixo an ai assistant made by rexeloft inc. how can i help you?"}), 200    
 
 
 if __name__ == '__main__':
