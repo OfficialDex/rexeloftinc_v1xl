@@ -1,9 +1,2 @@
+rexeloft-llc
 Flask
-nltk
-pytesseract
-Pillow
-requests
-googletrans
-fuzzywuzzy
-vaderSentiment
-scikit-learn
